@@ -91,6 +91,10 @@ has stopsignal => (
     coerce => 1,
 );
 
+has stdout_logfile => (
+    is => 'ro',
+);
+
 sub want_start {
     my $self = shift;
 
@@ -144,9 +148,19 @@ sub start {
                 open STDERR, '>&STDOUT' or die $!;
             }
 
+            if ( my $file = $self->stdout_logfile ) {
+                open my $stdout_log, '>>', $file
+                    or die "Failed to open $file: $!";
+                open STDOUT, '>&' . fileno($stdout_log) 
+                    or die "Failed to reopen STDOUT to $file: $!";
+            }
+
             POSIX::setuid( $self->uid )  if $self->uid;
             CORE::chdir $self->directory if $self->directory;
             CORE::umask $self->umask     if $self->umask;
+
+            print scalar localtime, " $$ Starting '", $self->command, "'\n";
+
             exec $self->command
         };
         exit 1;
