@@ -1,4 +1,4 @@
-package Brahman::Daemon;
+package Brahman::Superdaemon;
 use Mouse;
 use AnyEvent;
 use Brahman::Config;
