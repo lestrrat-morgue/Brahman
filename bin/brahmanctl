@@ -34,8 +34,11 @@ sub request {
     }
 }
 
-sub stop { $_[0]->request("stop") }
-sub kill { $_[0]->request("kill", [ @_[1..$#_] ]) }
+sub stop     { $_[0]->request("stop") }
+sub kill     { $_[0]->request("kill", [ @_[1..$#_] ]) }
+sub activate { $_[0]->request("activate", [ @_[1..$#_] ]) }
+sub deactivate { $_[0]->request("deactivate", [ @_[1..$#_] ]) }
+
 sub list {
     my $result = $_[0]->request("list");
     my $coder = JSON->new->utf8->pretty;

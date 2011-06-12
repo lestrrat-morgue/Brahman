@@ -9,6 +9,27 @@ sub list {
     return $programs;
 }
 
+sub activate {
+    my ($self, $ctxt, $args) = @_;
+
+    foreach my $name (@$args) {
+        if ( my $program = $ctxt->programs->{$name} ) {
+            $program->is_active(1);
+        }
+    }
+}
+
+sub deactivate {
+    my ($self, $ctxt, $args) = @_;
+
+    foreach my $name (@$args) {
+        if ( my $program = $ctxt->programs->{$name} ) {
+            $program->is_active(0);
+            $program->terminate;
+        }
+    }
+}
+
 sub killproc {
     my ($self, $ctxt, $args) = @_;
 

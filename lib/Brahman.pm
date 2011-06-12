@@ -12,7 +12,9 @@ __END__
 
     # to control
     brahmanctl list 
-    brahmanctl kill [$process_id, ...]
+    brahmanctl kill [$process_id ...]
+    brahmanctl activate [$name ... ]
+    brahmanctl deactivate [$name ... ]
     branmanctl stop
 
 =cut

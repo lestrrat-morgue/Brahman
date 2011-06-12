@@ -29,7 +29,7 @@ coerce 'Bool'
 ;
 
 has is_active => (
-    is => 'ro',
+    is => 'rw',
     isa => 'Bool',
     lazy => 1,
     default => sub { shift->autostart },

@@ -49,14 +49,20 @@ sub BUILD {
     my $self = shift;
 
     my $router = $self->router;
-    $router->connect("list", {
-        handler => 'Program',
-        action  => 'list',
-    });
-    $router->connect("kill", {
-        handler => 'Program',
-        action  => 'killproc',
-    });
+
+    my %program_routes = (
+        list => "list",
+        kill => "killproc",
+        activate => "activate",
+        deactivate => "deactivate",
+    );
+    while ( my ($route, $action) = each %program_routes ) {
+        $router->connect( $route, {
+            handler => 'Program',
+            action  => $action
+        });
+    }
+
     $router->connect("stop", {
         handler => 'Daemon',
         action  => 'stop',
