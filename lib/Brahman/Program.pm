@@ -5,8 +5,11 @@
 package Brahman::Program;
 use Mouse;
 use Mouse::Util::TypeConstraints;
-use POSIX ();
 use Config ();
+use Brahman::Event::Producer;
+use IO::Handle;
+use POSIX ();
+use Time::HiRes ();
 
 my %signo;
 my @signame;
@@ -95,6 +98,18 @@ has stdout_logfile => (
     is => 'ro',
 );
 
+has log_publisher => (
+    is => 'ro',
+    default => sub {
+        my $p = Brahman::Event::Producer->new(
+            host => 'unix/',
+            port => '/Users/daisuke/git/Dragonaut/event.sock'
+        );
+        $p->start;
+        $p;
+    }
+);
+
 sub want_start {
     my $self = shift;
 
@@ -122,8 +137,37 @@ sub reaped {
     delete $self->children->{$pid};
 }
 
+sub make_logpipe {
+    my $self = shift;
+
+    my ($reader, $writer) = AnyEvent::Util::portable_pipe;
+
+    my $log_publisher = $self->log_publisher;
+
+    # Listen to the child process's STDOUT/STDERR
+    my $hdl_reader = AnyEvent::Handle->new(fh => $reader);
+    my $code; $code = sub {
+        my ($hdl, $line) = @_;
+        $log_publisher->publish( {
+            type => "INFO",
+            message => $line,
+            time    => scalar Time::HiRes::gettimeofday()
+        } );
+        $hdl->push_read( line => $code );
+    };
+
+    $hdl_reader->push_read(line => $code);
+    $hdl_reader->on_error( sub { $_[0]->destroy } );
+
+    return ($hdl_reader, $reader, $writer);
+}
+
+
 sub start {
     my ($self, $ctxt) = @_;
+
+    my ($stdout_hdl, $stdout_reader, $stdout_writer) = $self->make_logpipe();
+    my ($stderr_hdl, $stderr_reader, $stderr_writer) = $self->make_logpipe();
 
     my $pid = fork();
     if (! defined $pid ) {
@@ -132,7 +176,7 @@ sub start {
     }
 
     if ($pid) { # parent
-        $self->children->{$pid}++;
+        $self->children->{$pid} = [ $stdout_hdl, $stderr_hdl ];
         $ctxt->watch_child( $pid, $self );
     } else {
         eval {
@@ -144,16 +188,14 @@ sub start {
                 }
             }
 
+            open STDOUT, '>&' . fileno($stdout_writer)
+                or die "Faile to redirect STDOUT to log publisher: $!";
+
             if ( $self->redirect_stderr ) {
                 open STDERR, '>&STDOUT' or die $!;
             }
 
-            if ( my $file = $self->stdout_logfile ) {
-                open my $stdout_log, '>>', $file
-                    or die "Failed to open $file: $!";
-                open STDOUT, '>&' . fileno($stdout_log) 
-                    or die "Failed to reopen STDOUT to $file: $!";
-            }
+            STDOUT->autoflush(1);
 
             POSIX::setuid( $self->uid )  if $self->uid;
             CORE::chdir $self->directory if $self->directory;
@@ -161,7 +203,7 @@ sub start {
 
             print scalar localtime, " $$ Starting '", $self->command, "'\n";
 
-            exec $self->command
+            exec $self->command;
         };
         exit 1;
     }
