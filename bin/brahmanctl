@@ -1,0 +1,47 @@
+package Brahman::Ctl;
+use Mouse;
+use Data::Dumper::Concise;
+use HTTP::Status ();
+use Time::HiRes ();
+use JSON;
+use Furl::HTTP;
+
+has furl => (
+    is => 'ro',
+    default => sub { Furl::HTTP->new }
+);
+has uri => (
+    is => 'ro',
+    default => "http://127.0.0.1:9999/rpc/"
+);
+
+sub request {
+    my ($self, $method, $params) = @_;
+
+    my %args = (
+        method => $method,
+        id     => scalar Time::HiRes::gettimeofday(),
+    );
+    if ($params) {
+        $args{params} = $params;
+    }
+
+    my @res = $self->furl->post( $self->uri, [], encode_json \%args );
+    if ( HTTP::Status::is_success( $res[1] ) ) {
+        return decode_json $res[4];
+    } else {
+        print STDERR "FAIL: $res[1]\n";
+    }
+}
+
+sub stop { $_[0]->request("stop") }
+sub kill { $_[0]->request("kill", [ @_[1..$#_] ]) }
+sub list {
+    my $result = $_[0]->request("list");
+    my $coder = JSON->new->utf8->pretty;
+    print $coder->encode($result->{result});
+}
+
+my $ctl = Brahman::Ctl->new();
+my $method = shift @ARGV;
+$ctl->$method(@ARGV);
