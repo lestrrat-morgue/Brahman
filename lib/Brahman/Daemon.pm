@@ -1,9 +1,9 @@
 package Brahman::Daemon;
 use Mouse;
 use AnyEvent;
-use Config::INI::Reader;
-use Brahman::Program;
+use Brahman::Config;
 use Brahman::JSONRPC;
+use Brahman::Program;
 use POSIX();
 
 has children => (
@@ -38,7 +38,7 @@ has config_file => (
 
 sub read_config {
     my $self = shift;
-    my $config = Config::INI::Reader->read_file( $self->config_file );
+    my $config = Brahman::Config->read_file( $self->config_file );
 
     my $programs = $self->programs;
     foreach my $o_name ( keys %$config ) {
