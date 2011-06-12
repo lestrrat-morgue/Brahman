@@ -41,12 +41,12 @@ sub read_config {
     my $config = Config::INI::Reader->read_file( $self->config_file );
 
     my $programs = $self->programs;
-    foreach my $name ( keys %$config ) {
-        next unless $name ne 'include';
-
+    foreach my $o_name ( keys %$config ) {
+        next unless $o_name =~ /^program:(.+)$/;
+        my $name = $1;
         my $new = Brahman::Program->new( {
             name => $name,
-            %{ $config->{$name} }
+            %{ $config->{$o_name} }
         } ) ;
 
         if ( my $old = $programs->{$name} ) {
