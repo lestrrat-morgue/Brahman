@@ -3,7 +3,12 @@ use strict;
 use lib "lib";
 use Brahman::Superdaemon;
 
-if (@ARGV) { die "XXX - Unimplemented" }
+use Getopt::Long;
 
-my $daemon = Brahman::Superdaemon->new;
+my %opts;
+if (! GetOptions(\%opts, "config_file=s") ) {
+    exit 1;
+
+
+my $daemon = Brahman::Superdaemon->new( %opts );
 $daemon->run;
