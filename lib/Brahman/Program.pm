@@ -6,7 +6,6 @@ package Brahman::Program;
 use Mouse;
 use Mouse::Util::TypeConstraints;
 use Config ();
-use Brahman::Event::Producer;
 use IO::Handle;
 use POSIX ();
 use Time::HiRes ();
@@ -94,29 +93,22 @@ has stopsignal => (
     coerce => 1,
 );
 
-has stdout_logfile => (
-    is => 'ro',
-);
-
-has log_publisher => (
-    is => 'ro',
-    default => sub {
-        my $p = Brahman::Event::Producer->new(
-            host => 'unix/',
-            port => '/Users/daisuke/git/Dragonaut/event.sock'
-        );
-        $p->start;
-        $p;
-    }
-);
+foreach my $stream ( qw(stdout stderr) ) {
+    has "${stream}_logfile" => ( is => 'ro' );
+    has "${stream}_logfile_maxbytes" => ( is => 'ro' );
+    has "${stream}_logfile_backups" => (
+        is => 'ro',
+        default => 10,
+    );
+}
 
 sub want_start {
-    my $self = shift;
+    my ($self, $num_children) = @_;
 
     return
         $self->is_active &&
         $self->autorestart &&
-        scalar keys %{$self->children} < $self->numprocs
+        $num_children < $self->numprocs
     ;
 }
 
@@ -137,37 +129,8 @@ sub reaped {
     delete $self->children->{$pid};
 }
 
-sub make_logpipe {
-    my $self = shift;
-
-    my ($reader, $writer) = AnyEvent::Util::portable_pipe;
-
-    my $log_publisher = $self->log_publisher;
-
-    # Listen to the child process's STDOUT/STDERR
-    my $hdl_reader = AnyEvent::Handle->new(fh => $reader);
-    my $code; $code = sub {
-        my ($hdl, $line) = @_;
-        $log_publisher->publish( {
-            type => "INFO",
-            message => $line,
-            time    => scalar Time::HiRes::gettimeofday()
-        } );
-        $hdl->push_read( line => $code );
-    };
-
-    $hdl_reader->push_read(line => $code);
-    $hdl_reader->on_error( sub { $_[0]->destroy } );
-
-    return ($hdl_reader, $reader, $writer);
-}
-
-
 sub start {
-    my ($self, $ctxt) = @_;
-
-    my ($stdout_hdl, $stdout_reader, $stdout_writer) = $self->make_logpipe();
-    my ($stderr_hdl, $stderr_reader, $stderr_writer) = $self->make_logpipe();
+    my ($self, $stdout, $stderr) = @_;
 
     my $pid = fork();
     if (! defined $pid ) {
@@ -176,8 +139,7 @@ sub start {
     }
 
     if ($pid) { # parent
-        $self->children->{$pid} = [ $stdout_hdl, $stderr_hdl ];
-        $ctxt->watch_child( $pid, $self );
+        return $pid;
     } else {
         eval {
             local %ENV = %ENV;
@@ -188,7 +150,7 @@ sub start {
                 }
             }
 
-            open STDOUT, '>&' . fileno($stdout_writer)
+            open STDOUT, '>&' . fileno($stdout)
                 or die "Faile to redirect STDOUT to log publisher: $!";
 
             if ( $self->redirect_stderr ) {

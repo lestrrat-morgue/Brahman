@@ -2,8 +2,9 @@
 package Brahman::Log::File;
 use Mouse;
 use IO::Handle;
+use AnyEvent;
 
-extends 'Brahman::Event::Consumer';
+extends 'Brahman::Event::PubSub';
 
 has logfile_size => (
     is => 'rw',
@@ -90,6 +91,29 @@ sub rotatelog {
 
     rename $file, "$file.1";
     $self->logfh($self->build_logfh);
+}
+
+sub spawn {
+    my ($class, $name, %args) = @_;
+
+    local $ENV{PERL5LIB} = join ":", @INC;
+    exec {$^X}
+        "$0 brahman logger $name",
+        '-e' => 'require shift; Brahman::Log::File->bootstrap( map { ($_ => $ARGV[$i++]) } qw(subscribe_connect logfile maxbytes backups) )',
+        $INC{'Brahman/Log/File.pm'},
+        map { defined $_ ? $_ : '' } 
+            @args{ qw( subscribe_connect logfile maxbytes backups ) }
+    ;
+        
+}
+
+sub bootstrap {
+    my ($class, %args) = @_;
+
+    my $cv = AE::cv;
+    my $logger = $class->new(%args, condvar => $cv);
+    $logger->start_pubsub;
+    $cv->recv;
 }
 
 no Mouse;

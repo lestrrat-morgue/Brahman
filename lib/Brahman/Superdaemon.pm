@@ -3,19 +3,14 @@ use Mouse;
 use AnyEvent;
 use Brahman::Config;
 use Brahman::JSONRPC;
-use Brahman::Program;
+use Brahman::Supervisor;
 use POSIX();
 
+# pid of supervisors.
 has children => (
     is => 'ro',
     isa => 'HashRef',
     default => sub { +{} }
-);
-
-has is_looping => (
-    is => 'rw',
-    isa => 'Bool',
-    default => 1,
 );
 
 has programs => (
@@ -36,33 +31,71 @@ has config_file => (
     required => 1,
 );
 
-sub read_config {
-    my $self = shift;
-    my $config = Brahman::Config->read_file( $self->config_file );
-
-    my $programs = $self->programs;
-    foreach my $o_name ( keys %$config ) {
-        next unless $o_name =~ /^program:(.+)$/;
-        my $name = $1;
-        my $new = Brahman::Program->new( {
-            name => $name,
-            %{ $config->{$o_name} }
-        } ) ;
-
-        if ( my $old = $programs->{$name} ) {
-            $old->reload( $new );
-        } else {
-            $programs->{$name} = $new;
-        }
-    }
-    
-}
+has main_cv => ( 
+    is => 'ro',
+    isa => 'AnyEvent::CondVar',
+    default => sub { AnyEvent::CondVar->new }
+);
 
 has watchers => (
     is => 'ro',
     isa => 'HashRef',
     default => sub { +{} },
 );
+
+sub read_config {
+    my $self = shift;
+    my $config = Brahman::Config->read_file( $self->config_file );
+    $self->config( $config );
+    $self->spawn_supervisors()
+}
+
+sub spawn_supervisors {
+    my $self = shift;
+    my $config = $self->config;
+
+    # create a reverse mapping
+    my %map = reverse %{ $self->children };
+
+    foreach my $o_name ( keys %$config ) {
+        next unless $o_name =~ /^program:(.+)$/;
+        my $name = $1;
+
+        next if $map{ $name }; # already spawned
+        $self->spawn_supervisor( $name );
+    }
+}
+
+sub reap_supervisor {
+    my ($self, $pid) = @_;
+    delete $self->children->{$pid};
+}
+
+sub spawn_supervisor {
+    my ($self, $name) = @_;
+
+    Scalar::Util::weaken($self);
+    my $pid = fork();
+    if (! defined $pid) {
+        die "Could not fork: $!";
+    }
+
+    if ($pid) {
+        # parent
+        $self->children->{$pid} = $name;
+        my $w; $w = AE::child $pid, sub {
+            my $a_pid = shift;
+            undef $w;
+            $self->reaped_supervisor($a_pid);
+        };
+    } else {
+        eval {
+            Brahman::Supervisor->spawn($name, $self->state_dir);
+        };
+        exit 1;
+    }
+}
+
 sub add_watcher { $_[0]->watchers->{ $_[1] } = $_[2] }
 sub del_watcher { delete $_[0]->watchers->{ $_[1] } }
 
@@ -82,15 +115,8 @@ sub watch_child {
     $self->add_watcher( "child.$pid", $child );
 }
 
-has main_cv => ( 
-    is => 'ro',
-    isa => 'AnyEvent::CondVar',
-    default => sub { AnyEvent::CondVar->new }
-);
-
 sub killproc {
     my ($self, $pid) = @_;
-
     if ( my $program = $self->children->{$pid} ) {
         $program->terminate($pid);
     }
@@ -111,12 +137,36 @@ sub stop {
     $self->main_cv->end;
 }
 
+sub spawn_processes {
+    my $self = shift;
+
+    my $cv = $self->main_cv;
+
+    my $programs = $self->programs;
+    foreach my $name ( keys %{ $programs } ) {
+        my $program = $programs->{$name};
+        $program->start( $self );
+        $cv->begin;
+    }
+}
+
 sub run {
     my $self = shift;
 
+    # Create a work directory to keep state. This state directory will
+    # contain minimum information about the process' PID, and the how
+    # it can be reached
+
+    my $state_dir = $self->state_dir;
+    if (! -e $state_dir) {
+        if (! File::Path::make_tree( $state_dir ) ) {
+            die "Could not create state dir: $state_dir";
+        }
+    }
+
     my $sighup  = AE::signal HUP => sub { $self->read_config };
     my $sigint  = AE::signal INT => sub { $self->stop() };
-    my $spawn   = AE::timer 0, 1,  sub { $self->spawn_processes };
+    my $spawn   = AE::timer 0, 1, sub { $self->spawn_supervisors };
     my $jsonrpc = Brahman::JSONRPC->new( ctxt => $self );
 
     my $cv = $self->main_cv;
@@ -132,20 +182,5 @@ sub run {
     $jsonrpc->start;
     $cv->recv;
 }
-
-sub spawn_processes {
-    my $self = shift;
-
-    my $cv = $self->main_cv;
-    my $programs = $self->programs;
-    foreach my $name ( keys %{ $programs } ) {
-        my $program = $programs->{$name};
-        next unless $program->want_start;
-
-        $program->start( $self );
-        $cv->begin;
-    }
-}
-        
 
 1;
