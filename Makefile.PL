@@ -1,6 +1,7 @@
 use inc::Module::Install;
 
 name 'Brahman';
+all_from 'lib/Brahman.pm';
 
 requires 'AnyEvent';
 requires 'AnyEvent::Handle';
