@@ -30,7 +30,8 @@ sub request {
     if ( HTTP::Status::is_success( $res[1] ) ) {
         return decode_json $res[4];
     } else {
-        print STDERR "FAIL: $res[1]\n";
+        print STDERR "FAIL: $res[1] $res[2]\n";
+        return ();
     }
 }
 
@@ -40,9 +41,10 @@ sub activate { $_[0]->request("activate", [ @_[1..$#_] ]) }
 sub deactivate { $_[0]->request("deactivate", [ @_[1..$#_] ]) }
 
 sub list {
-    my $result = $_[0]->request("list");
-    my $coder = JSON->new->utf8->pretty;
-    print $coder->encode($result->{result});
+    if ( my $result = $_[0]->request("list") ) {
+        my $coder = JSON->new->utf8->pretty;
+        print $coder->encode($result->{result});
+    }
 }
 
 my $ctl = Brahman::Ctl->new();
