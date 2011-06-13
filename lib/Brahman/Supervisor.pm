@@ -47,6 +47,15 @@ has condvar => (
     default => sub { AnyEvent::CondVar->new }
 );
 
+has publish_listen => (
+    is => 'ro',
+    lazy => 1,
+    default => sub {
+        my $sock = File::Spec->catfile( $self->state_dir, "$name.publish.sock" );
+        "unix:/$sock"
+    }
+);
+
 override consume => sub {
     my ($self, $object) = @_;
 
