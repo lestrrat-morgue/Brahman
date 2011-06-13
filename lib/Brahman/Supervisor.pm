@@ -54,7 +54,7 @@ has publish_listen => (
         my $self = shift;
         my $name = $self->name;
         my $sock = File::Spec->catfile( $self->state_dir, "$name.publish.sock" );
-        "unix:/$sock"
+        "unix/:$sock"
     }
 );
 
