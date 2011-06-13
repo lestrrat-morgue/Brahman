@@ -169,6 +169,7 @@ sub run {
 
     my $state_dir = $self->state_dir;
     if (! -e $state_dir) {
+        require File::Path;
         if (! File::Path::make_tree( $state_dir ) ) {
             die "Could not create state dir: $state_dir";
         }
