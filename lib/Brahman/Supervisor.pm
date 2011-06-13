@@ -51,6 +51,8 @@ has publish_listen => (
     is => 'ro',
     lazy => 1,
     default => sub {
+        my $self = shift;
+        my $name = $self->name;
         my $sock = File::Spec->catfile( $self->state_dir, "$name.publish.sock" );
         "unix:/$sock"
     }
