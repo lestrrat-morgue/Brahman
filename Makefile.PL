@@ -3,6 +3,7 @@ use inc::Module::Install;
 name 'Brahman';
 
 requires 'AnyEvent';
+requires 'AnyEvent::Handle';
 requires 'Class::Load';
 requires 'Config::INI::Reader';
 requires 'Mouse';
