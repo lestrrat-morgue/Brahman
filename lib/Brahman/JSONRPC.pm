@@ -11,6 +11,7 @@ use Scalar::Util ();
 use Try::Tiny;
 use Twiggy::Server;
 
+has pid    => ( is => 'ro', default => $$ );
 has ctxt   => ( is => 'ro', required => 1 );
 has server => ( is => 'rw' );
 has handlers => (
@@ -38,6 +39,7 @@ has router => (
 
 sub start {
     my $self = shift;
+warn "start";
     my $http = Twiggy::Server->new(listen => [ "0.0.0.0:9999" ] );
 
     # weak ref?
@@ -73,7 +75,9 @@ sub BUILD {
 
 sub DEMOLISH {
     my $self = shift;
-    $self->server->{exit_guard}->end;
+    if ( $self->pid == $$ ) {
+        $self->server->{exit_guard}->end;
+    }
 }
 
 sub _jsonrpc_app {
@@ -206,9 +210,7 @@ sub dispatch_jsonrpc {
             }
 
             my $handler = $self->get_handler( $matched->{handler} );
-warn "Handler = $handler";
             my $result = $handler->execute( $self->ctxt, $action, $procedure );
-warn "Result = $result";
 
             push @response, {
                 jsonrpc => '2.0',

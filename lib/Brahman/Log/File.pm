@@ -98,8 +98,8 @@ sub spawn {
 
     local $ENV{PERL5LIB} = join ":", @INC;
     exec {$^X}
-        "$0 brahman logger $name",
-        '-e' => 'require shift; Brahman::Log::File->bootstrap( map { ($_ => $ARGV[$i++]) } qw(subscribe_connect logfile maxbytes backups) )',
+        $^X,
+        '-e' => 'require shift; Brahman::Log::File->bootstrap( map { ($_ => shift @ARGV) } qw(subscribe_connect logfile maxbytes backups) )',
         $INC{'Brahman/Log/File.pm'},
         map { defined $_ ? $_ : '' } 
             @args{ qw( subscribe_connect logfile maxbytes backups ) }
@@ -112,7 +112,7 @@ sub bootstrap {
 
     my $cv = AE::cv;
     my $logger = $class->new(%args, condvar => $cv);
-    $logger->start_pubsub;
+    $logger->start;
     $cv->recv;
 }
 

@@ -1,12 +1,30 @@
 package Brahman::JSONRPC::Handler::Program;
 use Mouse;
+use JSON ();
 
 extends 'Brahman::JSONRPC::Handler';
 
 sub list {
     my ($self, $ctxt, $args) = @_;
-    my $programs = [ map { +{ %$_ } } values %{ $ctxt->programs } ];
-    return $programs;
+
+    my $children = $ctxt->children;
+    my @programs;
+    foreach my $pid (keys %$children) {
+        my $name = $children->{$pid};
+        my $state_file = File::Spec->catfile( $ctxt->state_dir, "$name.json" );
+        my $state = do {
+            open my $fh, '<', $state_file or die;
+            local $/;
+            JSON::decode_json(scalar <$fh>);
+        };
+        next unless $state;
+
+        push @programs, {
+            supervisor => $state,
+            name => $name,
+        };
+    }
+    return \@programs;
 }
 
 sub activate {

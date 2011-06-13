@@ -31,10 +31,15 @@ has config_file => (
     required => 1,
 );
 
-has main_cv => ( 
+has condvar => ( 
     is => 'ro',
     isa => 'AnyEvent::CondVar',
     default => sub { AnyEvent::CondVar->new }
+);
+
+has state_dir => (
+    is => 'ro',
+    default => "/var/run/brahman"
 );
 
 has watchers => (
@@ -83,14 +88,22 @@ sub spawn_supervisor {
     if ($pid) {
         # parent
         $self->children->{$pid} = $name;
-        my $w; $w = AE::child $pid, sub {
-            my $a_pid = shift;
-            undef $w;
-            $self->reaped_supervisor($a_pid);
-        };
+        my $w; $w = AE::child $pid, (sub {
+            my $SELF  = shift;
+            Scalar::Util::weaken($SELF);
+            return sub {
+                my $a_pid = shift;
+                undef $w;
+                $SELF->reap_supervisor($a_pid);
+            }
+        })->($self);
     } else {
         eval {
-            Brahman::Supervisor->spawn($name, $self->state_dir);
+            Brahman::Supervisor->spawn(
+                $name, 
+                config_file => $self->config_file,
+                state_dir => $self->state_dir
+            );
         };
         exit 1;
     }
@@ -108,7 +121,7 @@ sub watch_child {
         if ( my $program = delete $self->children->{$pid} ) {
             $program->reaped($pid, $status);
         }
-        $self->main_cv->end;
+        $self->condvar->end;
         $self->del_watcher( "child.$pid" );
     };
 
@@ -127,20 +140,17 @@ sub stop {
 
     my $children = $self->children;
     foreach my $pid ( keys %$children ) {
-        # terminate the program
-        my $program = $children->{$pid};
-        if ($program) {
-            $program->terminate;
-        }
+        # terminate supervisors
+        kill POSIX::SIGTERM(), $pid;
     }
 
-    $self->main_cv->end;
+    $self->condvar->end;
 }
 
 sub spawn_processes {
     my $self = shift;
 
-    my $cv = $self->main_cv;
+    my $cv = $self->condvar;
 
     my $programs = $self->programs;
     foreach my $name ( keys %{ $programs } ) {
@@ -169,7 +179,7 @@ sub run {
     my $spawn   = AE::timer 0, 1, sub { $self->spawn_supervisors };
     my $jsonrpc = Brahman::JSONRPC->new( ctxt => $self );
 
-    my $cv = $self->main_cv;
+    my $cv = $self->condvar;
     $cv->cb( sub {
         undef $sighup;
         undef $sigint;

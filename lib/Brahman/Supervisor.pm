@@ -3,6 +3,7 @@ package Brahman::Supervisor;
 use Mouse;
 use AnyEvent;
 use AnyEvent::Handle;
+use Brahman::Config;
 use Brahman::Program;
 use Brahman::Log::File;
 use File::Copy ();
@@ -10,6 +11,15 @@ use File::Temp ();
 use JSON ();
 
 extends 'Brahman::Event::PubSub';
+
+has name => (
+    is => 'ro',
+    required => 1,
+);
+
+has config_file => (
+    is => 'ro',
+);
 
 has program_pids => (
     is => 'ro',
@@ -25,12 +35,16 @@ has logger_pids => (
 
 has program => (
     is => 'rw',
-    required => 1,
 );
 
 has state_dir => (
     is => 'ro',
     required => 1,
+);
+
+has condvar => (
+    is => 'ro',
+    default => sub { AnyEvent::CondVar->new }
 );
 
 override consume => sub {
@@ -50,20 +64,25 @@ sub bootstrap {
 }
 
 sub spawn {
-    my ($class, $name, $state_dir) = @_;
+    my ($class, $name, %args) = @_;
+
+    local $ENV{PERL5LIB} = join ":", @INC;
     exec {$^X}
-        "$0 brahman supervisor $name",
-        '-e' => 'require shift; Brahman::Supervisor->bootstrap(state_dir => shift, version => "DUMMY")',
+        $^X,
+        '-e' => 'require shift; Brahman::Supervisor->bootstrap(map { ($_ => shift @ARGV) } qw(name state_dir config_file) )',
         $INC{'Brahman/Supervisor.pm'},
-        $state_dir,
+        $name,
+        map { defined $_ ? $_ : '' }
+            @args{ qw(state_dir config_file) }
     ;
 }
 
 sub record_state {
     my $self = shift;
 
+    my $program_pids = $self->program_pids || {};
     my $state_dir = $self->state_dir;
-    my $file = File::Spec->catfile( $state_dir, $self->program->name . ".json" );
+    my $file = File::Spec->catfile( $state_dir, $self->name . ".json" );
     my $temp = File::Temp->new(UNLINK => 1);
     print $temp JSON->new->utf8->pretty->encode(
         {
@@ -72,6 +91,14 @@ sub record_state {
             publish_listen => $self->publish_listen,
             publish_connect => $self->publish_connect,
             pid => $$,
+            processes => [
+                map {
+                    +{
+                        pid => $_,
+                        since => $program_pids->{$_}->[0],
+                    }
+                } keys %$program_pids
+            ],
         }
     );
 
@@ -79,10 +106,28 @@ sub record_state {
     File::Copy::copy( $temp->filename, $file );
 }
 
+sub read_config {
+    my $self = shift;
+
+    my $name = $self->name;
+    my $config = Brahman::Config->read_file( $self->config_file );
+    $self->program(
+        Brahman::Program->new(
+            {
+                name => $name,
+                %{$config->{"program:$name"}},
+            }
+        )
+    );
+}
+
 sub run {
     my $self = shift;
 
-    $self->start_pubsub;
+    $self->read_config();
+
+
+    $self->start;
 
     # record where we're listening
     $self->record_state();
@@ -98,6 +143,7 @@ sub run {
         undef $spawn_program;
         undef $spawn_logger;
     } );
+
     $cv->begin;
 }
 
@@ -133,8 +179,6 @@ sub spawn_logger {
 
         next unless $logfile;
 
-warn "spawn $stream logger";
-
         my $pid = fork();
         if (! defined $pid) {
             die "Could not fork: $!";
@@ -162,7 +206,7 @@ warn "spawn $stream logger";
                     backups           => $backups,
                 );
             };
-warn $@ if $@;
+            warn $@ if $@;
             exit 1;
         }
     }
@@ -176,15 +220,13 @@ sub spawn_program {
     return unless $program;
     return unless $program->want_start( scalar keys %{ $self->program_pids } );
 
-warn "spawn program";
-
     my ($stdout_hdl, $stdout_reader, $stdout_writer) = $self->make_logpipe();
     my ($stderr_hdl, $stderr_reader, $stderr_writer) = $self->make_logpipe();
 
     my $pid = $program->start( $stdout_writer, $stderr_writer );
     $self->condvar->begin;
 
-    $self->program_pids->{$pid} = [ $stdout_hdl, $stderr_hdl ];
+    $self->program_pids->{$pid} = [ time(), $stdout_hdl, $stderr_hdl ];
 
     my $w; $w = AE::child $pid, (sub {
         my $SELF = shift;
@@ -193,11 +235,12 @@ warn "spawn program";
             my $a_pid = shift;
             undef $w;
             if (delete $SELF->program_pids->{$a_pid}) {
-warn "reaped $a_pid";
                 $SELF->condvar->end;
             }
         }
     })->($self);
+
+    $self->record_state();
 }
 
 sub make_logpipe {
