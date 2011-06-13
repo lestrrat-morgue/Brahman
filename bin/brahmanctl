@@ -1,6 +1,5 @@
 package Brahman::Ctl;
 use Mouse;
-use Data::Dumper::Concise;
 use HTTP::Status ();
 use Time::HiRes ();
 use JSON;
