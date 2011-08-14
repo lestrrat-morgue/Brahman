@@ -52,7 +52,6 @@ sub read_config {
     my $self = shift;
     my $config = Brahman::Config->read_file( $self->config_file );
     $self->config( $config );
-    $self->spawn_supervisors()
 }
 
 sub spawn_supervisors {
@@ -175,7 +174,11 @@ sub run {
         }
     }
 
-    my $sighup  = AE::signal HUP => sub { $self->read_config };
+    my $sighup  = AE::signal HUP => sub {
+        $self->read_config;
+        $self->spawn_supervisors();
+    };
+
     my $sigint  = AE::signal INT => sub { $self->stop() };
     my $spawn   = AE::timer 0, 1, sub { $self->spawn_supervisors };
     my $jsonrpc = Brahman::JSONRPC->new( ctxt => $self );
@@ -190,6 +193,7 @@ sub run {
     $cv->begin;
 
     $self->read_config;
+    $self->spawn_supervisors();
     $jsonrpc->start;
     $cv->recv;
 }
