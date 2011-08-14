@@ -105,6 +105,7 @@ foreach my $stream ( qw(stdout stderr) ) {
 sub want_start {
     my ($self, $num_children) = @_;
 
+    $num_children ||= 0;
     return
         $self->is_active &&
         $self->autorestart &&
