@@ -26,7 +26,6 @@ has config => (
 
 has config_file => (
     is => 'ro',
-    isa => 'Str',
     default => "etc/config.ini",
     required => 1,
 );
@@ -75,10 +74,23 @@ sub reap_supervisor {
     delete $self->children->{$pid};
 }
 
+sub register_supervisor {
+    my ($self, $pid, $name) = @_;
+    $self->children->{$pid} = $name;
+    my $w; $w = AE::child $pid, (sub {
+        my $SELF  = shift;
+        Scalar::Util::weaken($SELF);
+        return sub {
+            my $a_pid = shift;
+            undef $w;
+            $SELF->reap_supervisor($a_pid);
+        }
+    })->($self);
+}
+
 sub spawn_supervisor {
     my ($self, $name) = @_;
 
-    Scalar::Util::weaken($self);
     my $pid = fork();
     if (! defined $pid) {
         die "Could not fork: $!";
@@ -86,16 +98,7 @@ sub spawn_supervisor {
 
     if ($pid) {
         # parent
-        $self->children->{$pid} = $name;
-        my $w; $w = AE::child $pid, (sub {
-            my $SELF  = shift;
-            Scalar::Util::weaken($SELF);
-            return sub {
-                my $a_pid = shift;
-                undef $w;
-                $SELF->reap_supervisor($a_pid);
-            }
-        })->($self);
+        $self->register_supervisor( $pid, $name );
     } else {
         eval {
             Brahman::Supervisor->spawn(
@@ -104,6 +107,9 @@ sub spawn_supervisor {
                 state_dir => $self->state_dir
             );
         };
+        if ($@) {
+            warn $@;
+        }
         exit 1;
     }
 }
@@ -146,19 +152,6 @@ sub stop {
     $self->condvar->end;
 }
 
-sub spawn_processes {
-    my $self = shift;
-
-    my $cv = $self->condvar;
-
-    my $programs = $self->programs;
-    foreach my $name ( keys %{ $programs } ) {
-        my $program = $programs->{$name};
-        $program->start( $self );
-        $cv->begin;
-    }
-}
-
 sub run {
     my $self = shift;
 
@@ -174,10 +167,14 @@ sub run {
         }
     }
 
-    my $sighup  = AE::signal HUP => sub {
-        $self->read_config;
-        $self->spawn_supervisors();
-    };
+    my $sighup  = AE::signal HUP => (sub {
+        my $SELF = shift;
+        Scalar::Util::weaken($SELF);
+        sub {
+            $SELF->read_config;
+            $SELF->spawn_supervisors();
+        };
+    })->($self);
 
     my $sigint  = AE::signal INT => sub { $self->stop() };
     my $spawn   = AE::timer 0, 1, sub { $self->spawn_supervisors };
