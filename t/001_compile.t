@@ -7,7 +7,7 @@ find( {
     no_chdir => 1,
     wanted   => sub {
         my $file = $File::Find::name;
-        return 1 unless -f $file;
+        return 1 unless -f $file && $file =~ /\.pm$/;
 
         $file =~ s/$dir\/?//;
         $file =~ s/\//::/g;
