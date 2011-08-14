@@ -195,7 +195,6 @@ sub run {
     $self->read_config;
     $self->spawn_supervisors();
     $jsonrpc->start;
-    $cv->recv;
 }
 
 1;

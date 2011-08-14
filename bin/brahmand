@@ -13,3 +13,6 @@ if (! GetOptions(\%opts, "config_file=s") ) {
 
 my $daemon = Brahman::Superdaemon->new( %opts );
 $daemon->run;
+
+my $cv = $daemon->condvar;
+$cv->recv;
