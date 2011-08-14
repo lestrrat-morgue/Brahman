@@ -19,6 +19,7 @@ has name => (
 
 has config_file => (
     is => 'ro',
+    required => 1,
 );
 
 has program_pids => (
@@ -88,12 +89,20 @@ sub spawn {
     ;
 }
 
+has state_file => (
+    is => 'rw',
+    lazy => 1,
+    default => sub {
+        my $self = shift;
+        File::Spec->catfile( $self->state_dir, $self->name . ".json" );
+    }
+);
+
 sub record_state {
     my $self = shift;
 
     my $program_pids = $self->program_pids || {};
-    my $state_dir = $self->state_dir;
-    my $file = File::Spec->catfile( $state_dir, $self->name . ".json" );
+    my $file = $self->state_file;
     my $temp = File::Temp->new(UNLINK => 1);
     print $temp JSON->new->utf8->pretty->encode(
         {
@@ -122,11 +131,13 @@ sub read_config {
 
     my $name = $self->name;
     my $config = Brahman::Config->read_file( $self->config_file );
+    my $this_config = $config->{"program:$name"};
+
     $self->program(
         Brahman::Program->new(
             {
                 name => $name,
-                %{$config->{"program:$name"}},
+                %{ $this_config || {} },
             }
         )
     );
@@ -136,8 +147,6 @@ sub run {
     my $self = shift;
 
     $self->read_config();
-
-
     $self->start;
 
     # record where we're listening
@@ -263,6 +272,7 @@ sub make_logpipe {
     my $hdl_reader = AnyEvent::Handle->new(fh => $reader);
     my $code; $code = (sub {
         my $SELF = shift;
+        Scalar::Util::weaken($SELF);
         return sub {
             my ($hdl, $line) = @_;
             $SELF->publish( {
