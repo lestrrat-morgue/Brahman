@@ -10,7 +10,7 @@ subtest 'create' => sub {
 
     my $program = "hoge";
     print $config_file <<EOM;
-[program:hoge]
+[program:$program]
 command=$^X -e1
 
 EOM
